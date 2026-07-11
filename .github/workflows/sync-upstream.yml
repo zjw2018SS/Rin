@@ -1,14 +1,15 @@
 name: Sync upstream
 on:
-  schedule: [{cron: '43 4 * * *'}]  # UTC 4:43 daily
+  schedule: [{cron: "43 4 * * *"}]
   workflow_dispatch: {}
 jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with: {token: ${{ secrets.GITHUB_TOKEN }}}
       - name: Sync from openRin/Rin
-        run: gh repo sync ${{ github.repository }} --source openRin/Rin --force
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git remote add upstream https://github.com/openRin/Rin.git
+          git fetch upstream main
+          git merge upstream/main --no-edit --allow-unrelated-histories || { echo "NO_UPSTREAM_CHANGES"; exit 0; }
+          git push origin main
