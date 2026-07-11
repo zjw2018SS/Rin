@@ -12,7 +12,9 @@ jobs:
           fetch-depth: 0
       - name: Sync from openRin/Rin
         run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
           git remote add upstream https://github.com/openRin/Rin.git
           git fetch upstream main
-          git merge upstream/main --no-edit || { echo "NO_UPSTREAM_CHANGES"; exit 0; }
+          git merge upstream/main --no-edit || { echo "MERGE_CONFLICT_SKIPPED"; exit 0; }
           git push origin main
