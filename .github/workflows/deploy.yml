@@ -1,20 +1,20 @@
 name: Deploy
 
 on:
-  workflow_run:
-    workflows: ["Build"]
-    types:
-      - completed
   workflow_dispatch:
     inputs:
       artifact_url:
-        description: 'Cloudflare build artifact URL (.tar.gz, e.g., build-v1.0.0-cloudflare.tar.gz)'
-        required: true
+        description: 'Reviewed release artifact URL (.tar.gz or .zip); choose this or build_run_id'
+        required: false
+        type: string
+      build_run_id:
+        description: 'Successful manual Build run ID from this repository; choose this or artifact_url'
+        required: false
         type: string
       environment:
         description: 'Deployment environment'
         required: true
-        default: 'production'
+        default: production
         type: choice
         options:
           - production
@@ -22,66 +22,90 @@ on:
 
 permissions:
   contents: read
-  pull-requests: write
   actions: read
 
 jobs:
   prepare:
+    permissions:
+      contents: read
+      actions: read
     runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     outputs:
       is_production: ${{ steps.meta.outputs.is_production }}
       pr_number: ${{ steps.meta.outputs.pr_number }}
     steps:
-      - name: Download build artifacts from workflow
-        if: ${{ github.event_name == 'workflow_run' }}
+      - name: Validate artifact selection
+        id: selection
+        uses: actions/github-script@v7
+        env:
+          BUILD_RUN_ID: ${{ inputs.build_run_id }}
+          ARTIFACT_URL: ${{ inputs.artifact_url }}
+        with:
+          script: |
+            const runId = (process.env.BUILD_RUN_ID || '').trim();
+            const url = (process.env.ARTIFACT_URL || '').trim();
+            if (Boolean(runId) === Boolean(url)) {
+              throw new Error('Choose exactly one artifact_url or build_run_id');
+            }
+            if (runId) {
+              if (!/^[1-9][0-9]*$/.test(runId) || !Number.isSafeInteger(Number(runId))) {
+                throw new Error('build_run_id must be a positive integer');
+              }
+              const { data: run } = await github.rest.actions.getWorkflowRun({
+                owner: context.repo.owner, repo: context.repo.repo, run_id: Number(runId)
+              });
+              if (run.path !== '.github/workflows/build.yml' || run.event !== 'workflow_dispatch' ||
+                  run.status !== 'completed' || run.conclusion !== 'success' ||
+                  run.head_repository.full_name !== `${context.repo.owner}/${context.repo.repo}`) {
+                throw new Error('Choose a successful manual Build run from this repository');
+              }
+              core.setOutput('run_id', runId);
+            } else {
+              const parsed = new URL(url);
+              if (parsed.protocol !== 'https:' || parsed.username || parsed.password ||
+                  !/\.(tar\.gz|zip)$/.test(parsed.pathname)) {
+                throw new Error('A credential-free HTTPS .tar.gz or .zip URL is required');
+              }
+            }
+
+      - name: Download selected Build artifacts
+        if: inputs.build_run_id != ''
         uses: actions/download-artifact@v4
         with:
-          name: build-${{ github.event.workflow_run.id }}
+          name: build-${{ steps.selection.outputs.run_id }}
           path: ./artifacts
-          run-id: ${{ github.event.workflow_run.id }}
+          run-id: ${{ steps.selection.outputs.run_id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Download artifacts from URL
-        if: ${{ github.event_name == 'workflow_dispatch' }}
+      - name: Download reviewed artifact URL
+        if: inputs.artifact_url != ''
+        env:
+          ARTIFACT_URL: ${{ inputs.artifact_url }}
         run: |
-          URL="${{ github.event.inputs.artifact_url }}"
-          echo "Downloading from: $URL"
-          
+          set -euo pipefail
           mkdir -p ./artifacts
-          if [[ "$URL" == *.zip ]]; then
-            curl -L "$URL" -o ./artifacts/build.zip
+          if [[ "${ARTIFACT_URL%%\?*}" == *.zip ]]; then
+            curl --fail --location --proto '=https' --proto-redir '=https' "$ARTIFACT_URL" -o ./artifacts/build.zip
             unzip -q ./artifacts/build.zip -d ./artifacts
             rm ./artifacts/build.zip
           else
-            curl -L "$URL" -o ./artifacts/build.tar.gz
+            curl --fail --location --proto '=https' --proto-redir '=https' "$ARTIFACT_URL" -o ./artifacts/build.tar.gz
             tar -xzf ./artifacts/build.tar.gz -C ./artifacts
             rm ./artifacts/build.tar.gz
           fi
 
-      - name: Set deployment type
+      - name: Set manual deployment type
         id: meta
+        env:
+          DEPLOY_ENVIRONMENT: ${{ inputs.environment }}
         run: |
-          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
-            # Manual deployment
-            if [ "${{ github.event.inputs.environment }}" == "production" ]; then
-              echo "is_production=true" >> $GITHUB_OUTPUT
-            else
-              echo "is_production=false" >> $GITHUB_OUTPUT
-            fi
-            echo "pr_number=0" >> $GITHUB_OUTPUT
+          set -euo pipefail
+          if [ "$DEPLOY_ENVIRONMENT" = production ]; then
+            echo "is_production=true" >> "$GITHUB_OUTPUT"
           else
-            # Auto deployment from workflow_run - check ref
-            REF=$(cat ./artifacts/build-meta/ref 2>/dev/null || echo "unknown")
-            if [[ "$REF" == "refs/heads/main" || "$REF" == "refs/heads/master" ]]; then
-              echo "is_production=true" >> $GITHUB_OUTPUT
-            else
-              echo "is_production=false" >> $GITHUB_OUTPUT
-            fi
-            # Read PR number from build-meta
-            PR_NUMBER=$(cat ./artifacts/build-meta/pr_number 2>/dev/null || echo "0")
-            echo "pr_number=${PR_NUMBER}" >> $GITHUB_OUTPUT
+            echo "is_production=false" >> "$GITHUB_OUTPUT"
           fi
+          echo "pr_number=0" >> "$GITHUB_OUTPUT"
 
       - name: Upload artifacts for deploy job
         uses: actions/upload-artifact@v4
@@ -91,6 +115,9 @@ jobs:
           retention-days: 1
 
   deploy:
+    permissions:
+      contents: read
+      actions: read
     needs: prepare
     runs-on: ubuntu-latest
     environment:
@@ -239,36 +266,3 @@ jobs:
           fi
           echo "Resolved deployment URL: ${URL}"
           echo "url=${URL}" >> $GITHUB_OUTPUT
-
-      - name: Comment on PR
-        if: needs.prepare.outputs.pr_number != '0'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const url = '${{ steps.deploy.outputs.url }}';
-            const prNumber = parseInt('${{ needs.prepare.outputs.pr_number }}');
-            const { data: comments } = await github.rest.issues.listComments({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: prNumber
-            });
-            const botComment = comments.find(comment => 
-              comment.user.type === 'Bot' && 
-              comment.body.includes('🚀 **Preview deployed!**')
-            );
-            const body = `🚀 **Preview deployed!**\n\n🔗 ${url}`;
-            if (botComment) {
-              await github.rest.issues.updateComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                comment_id: botComment.id,
-                body: body
-              });
-            } else {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: prNumber,
-                body: body
-              });
-            }

@@ -1,10 +1,10 @@
 name: CI - Test and Type Check
 
 on:
-  push:
-    branches: [main, trunk]
-  pull_request:
-    branches: [main, trunk]
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   test-server:
@@ -99,9 +99,9 @@ jobs:
       - name: Run tests with coverage
         run: bun run test:coverage
       
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v3
+      - name: Save coverage report
+        uses: actions/upload-artifact@v4
         with:
-          files: ./coverage/lcov.info
-          flags: unittests
-          name: codecov-umbrella
+          name: test-coverage-${{ github.run_id }}
+          path: ./coverage/lcov.info
+          if-no-files-found: error

@@ -1,17 +1,40 @@
 name: Cleanup Preview
 
 on:
-  pull_request:
-    types: [closed]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: 'Closed PR number whose preview should be removed'
+        required: true
+        type: number
 
 permissions:
   contents: read
-  pull-requests: write
 
 jobs:
   cleanup-preview:
+    permissions:
+      contents: read
+      pull-requests: write
     runs-on: ubuntu-latest
     steps:
+      - name: Validate closed PR
+        uses: actions/github-script@v7
+        env:
+          PR_NUMBER: ${{ inputs.pr_number }}
+        with:
+          script: |
+            const number = Number(process.env.PR_NUMBER);
+            if (!Number.isSafeInteger(number) || number < 1) {
+              throw new Error('A positive integer PR number is required');
+            }
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner, repo: context.repo.repo, pull_number: number
+            });
+            if (pr.state !== 'closed') {
+              throw new Error('Only a closed PR preview may be removed');
+            }
+
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
@@ -33,7 +56,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           set -euo pipefail
-          PR_NUMBER="${{ github.event.number }}"
+          PR_NUMBER="${{ inputs.pr_number }}"
           WORKER_NAME="${{ vars.WORKER_NAME || 'rin-server' }}-pr-${PR_NUMBER}"
           TASK_QUEUE_NAME="${WORKER_NAME}-tasks"
 
@@ -49,10 +72,12 @@ jobs:
           echo "✅ Preview deployment cleaned up"
 
       - name: Comment PR cleanup
+        env:
+          PR_NUMBER: ${{ inputs.pr_number }}
         uses: actions/github-script@v7
         with:
           script: |
-            const prNumber = context.issue.number;
+            const prNumber = Number(process.env.PR_NUMBER);
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,

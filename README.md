@@ -1,3 +1,5 @@
+> **本 Fork 使用手动上游更新。** 上游只在本地同步，GitHub Actions 均手动执行。允许 CF 原生自动构建，推送前核对部署影响。见[手动更新说明](MANUAL-UPDATES.md)。
+
 ![Cover](./docs/docs/public/rin-logo.png)
 
 English | [简体中文](./README_zh_CN.md)
@@ -112,11 +114,11 @@ The deployment script will automatically:
 
 ### GitHub Actions Workflows
 
-The repository includes several automated workflows:
+Every retained workflow in this fork runs only through manual dispatch:
 
-- **`ci.yml`** - Runs type checking and formatting validation on every push/PR
+- **`ci.yml`** - Manually runs type checking and formatting validation
 - **`test.yml`** - Runs comprehensive tests (server + client) with coverage reporting
-- **`build.yml`** - Builds the project and triggers deployment
+- **`build.yml`** - Manually builds the project; does not trigger deployment
 - **`deploy.yml`** - Deploys to Cloudflare Pages and Workers
 
 **Required secrets (Repository Settings → Secrets and variables → Actions):**

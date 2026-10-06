@@ -1,3 +1,5 @@
+> **Manual upstream updates for this fork.** Synchronize upstream locally; Actions require manual dispatch. Existing CF Git builds are allowed; check deployment impact before pushing. See the [manual update guide](MANUAL-UPDATES.md).
+
 ![封面](./docs/docs/public/rin-logo.png)
 
 [English](./README.md) | 简体中文
@@ -109,11 +111,11 @@ bun run deploy:client
 
 ### GitHub Actions Workflows
 
-存储库包含多个自动化工作流程：
+本 Fork 保留的工作流全部通过手动按钮运行：
 
-- **`ci.yml`** - 每次推送/PR 都会运行类型检查和格式验证
+- **`ci.yml`** - 手动运行类型检查和格式验证
 - **`test.yml`** - 运行全面的测试（服务器+客户端），并生成覆盖率报告
-- **`build.yml`** - 构建项目并触发部署
+- **`build.yml`** - 手动构建项目，不触发部署
 - **`deploy.yml`** - 部署到 Cloudflare Pages 和 Workers
 
 **必备变量 (Repository Settings → Secrets and variables → Actions):**

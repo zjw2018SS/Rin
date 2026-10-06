@@ -1,14 +1,10 @@
 name: CI
 
 on:
-  push:
-    branches:
-      - main
-      - trunk
-  pull_request:
-    branches:
-      - main
-      - trunk
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   check:
